@@ -1,18 +1,23 @@
 package com.example.mongo.binary.api.controller;
 
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.mongodb.gridfs.GridFsOperations;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.RestController;
-import org.springframework.data.mongodb.core.query.Criteria;
-import org.springframework.data.mongodb.core.query.Query;
-
-
+import java.io.ByteArrayInputStream;
+import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.Date;
+
+import javax.sql.rowset.CachedRowSet;
+
+import org.apache.commons.io.FileUtils;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.mongodb.core.query.Criteria;
+import org.springframework.data.mongodb.core.query.Query;
+import org.springframework.data.mongodb.gridfs.GridFsOperations;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RestController;
 
 import com.mongodb.BasicDBObject;
 import com.mongodb.DBObject;
@@ -67,20 +72,25 @@ public class BinaryDataController {
 		
 		
 		//Define Metadata
-		DBObject metadata=new BasicDBObject();
+		/*DBObject metadata=new BasicDBObject();
 		metadata.put("type", extension);
 		metadata.put("user", "ever");
 		String archivo=file+"."+extension;
 		//Store  File		//el nombre es el tercer Parametro
 		//Se puede borrar por el nombre talcual ya q se guarda igual en el filename del documento.
-		this.deleteIfExist(file);
+		//this.deleteIfExist(file);
 
 		String fileId=gridFsOperations.store(new FileInputStream("C:/Users/Ever/Desktop/Varios/images/"+archivo), 
 					   file,"type/"+extension,metadata).getId().toString();
 		
 		//System.out.println("El id de almacenado fué:  "+fileId);			   
-		return "File Stored Sucessfully: "+file +"with FileId : "+fileId;
+		System.out.println( new Date() );*/
+		generar();
+		return "Todo bien";
 	}
+	
+	
+	
 	
 	/**
 	 * Borra el archivo por nombre si ya existe, se puede cambiar a por Id. 
@@ -167,66 +177,57 @@ public class BinaryDataController {
 	
 	
 	
-	///---------------------------------------------------------------------------------------------------------------------
 	
-	/*@GetMapping("/saveFiles/{parametro}/")Codigo Inicial
-	public String saveFile(@PathVariable("parametro") String parametro) throws FileNotFoundException {
-		
-		 System.out.println("el parametro fué:"+parametro); 
-		//Define Metadata
-		DBObject metadata=new BasicDBObject();
-		metadata.put("organization", "Java Techie");
-		
-		//Store image File
-		InputStream inputstream= new FileInputStream("C:/Users/Ever/Desktop/Varios/images/"+parametro);
-		//InputStream inputstream= new FileInputStream("C:/Users/Ever/Desktop/Varios/images/logo.png");
-		metadata.put("type", "image");
 	
-		fileId=gridFsOperations.store(inputstream,"logo.png","image/pgn",metadata).getId().toString();
-		System.out.println("File Id Stored"+fileId);
-		
-		//Store Text File
-		metadata.put("type", "data");
-		gridFsOperations.store(new FileInputStream("C:/Users/Ever/Desktop/Varios/images/textoPrueba.txt"), "myText.txt","text/plain",metadata);
-		
-		return "File Stored Sucessfully";
-	}
 	
-	/**
-	 * Recupera un recurso de tipo imagen por su idFile y lo guarda en una carpeta preestablecida.
-	 * @param id, el idFile con que se almacena en la coleccion Files de GridFS.
-	 * @return,mensaje con el nombre del archivo que recuperó de mongo.
-	 * @throws IOException
-	 *
-	@GetMapping("/retrive/image/{id}")
-	public String retriveImageFile(@PathVariable("id") String id) throws IOException {
-		//String id="5f08744cfc3f9f2540d8aade";
-		
-		System.out.println("El id recibido fué:"+id);
-		
-		//fileId
-		GridFSDBFile dbFile= gridFsOperations.findOne(new Query(Criteria.where("_id").is(id)));
-		
-		dbFile.writeTo("C:/Users/Ever/Documents/archivos-gridFS/img.png");
-		System.out.println("File Name :"+dbFile.getFilename());
-		
-		return "Image File Retrived con nombre:"+dbFile.getFilename();
+	
+	public void generar() {
+		//conexión con postgres
+		ConexionBD con = getConnection();
+		try{
+			//mongo
+			DBObject metadata=new BasicDBObject();
+			metadata.put("type", "pdf");
+			metadata.put("user", "ever");
+			System.out.println( "Inicio" );
+			System.out.println( new Date() );
+			con.init();
+			//consulta a postgres
+			CachedRowSet crs = con.consultar("select d.data_gen,tpd.nombre_documento as nombre, d.codigo_detalle  from predi.predi_detalle_etapa_documento_notificacion as d  inner join predi.predi_tipo_documento as tpd on tpd .codigo_tipo_documento=d.fk_codigo_documento and d.data_gen notnull limit 700");
+			while(crs.next()) {		
+				File file = new File("/tmp/".concat( crs.getString("nombre") ).concat( crs.getString("codigo_detalle") ).concat(".pdf") );
+				//forma el archivo;
+				FileUtils.writeByteArrayToFile(file, crs.getBytes("data_gen"));
+				if(!file.exists())
+					throw new Exception("No existe el archivo");
+				
+				FileInputStream fin = new FileInputStream(file);
+				String fileId=gridFsOperations.store(fin, 
+						   crs.getString("nombre"),"type/"+"pdf",metadata).getId().toString();
+				con.ejecutar("INSERT INTO predi.data_mongo (id_mongo, id_doc) VALUES(?, ?);", fileId, crs.getString("codigo_detalle"));
+				//crs.close();cierra todo
+				if(file.exists()) 
+					file.delete();					
+				fin.close();
+			}			
+			con.finish();
+			System.out.println( "Fin" );
+			System.out.println( new Date() );
+		}catch (Exception er) {
+			er.printStackTrace();
+			//con.close();
+		}
 	}
-		
-	/**
-	 * Recupera un recurso de tipo txt y lo guarda en una carpeta. 
-	 * @return, el nombre del archivo guardado
-	 * @throws IOException
-	 *
-	@GetMapping("/retrive/text")
-	public String retriveTextFile() throws IOException {
-		GridFSDBFile dbFile = gridFsOperations.findOne(new Query(Criteria.where("metadata.type").is("data")));
-		dbFile.writeTo("C:/Users/Ever/Documents/archivos-gridFS/myTextico.txt");
-		System.out.println("File name : " + dbFile.getFilename());
-		return "Text File retrived with name : " + dbFile.getFilename() ;
-	}
-	*/
 
 	
+	public ConexionBD getConnection() {
+		ConexionBD con = new ConexionBD();
+		con.basedatos = "san_vicente";
+		con.clave= "password";
+		con.ip="localhost";
+		con.puerto= "5432";
+		con.usuario="postgres";
+		return con;
+	}
 	
 }
