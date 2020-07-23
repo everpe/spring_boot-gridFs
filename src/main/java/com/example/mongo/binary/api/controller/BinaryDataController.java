@@ -4,9 +4,12 @@ import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Date;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 import javax.sql.rowset.CachedRowSet;
 
@@ -29,7 +32,7 @@ import com.mongodb.gridfs.GridFSDBFile;
  */
 @RestController
 public class BinaryDataController {
-	//Interfaz de operaciones para Grid provista por SpringBoot
+	//Interfaz de operaciones para Grid provista por SpringBoot, inyección Dependencia.
 	@Autowired
 	private GridFsOperations gridFsOperations;
 	
@@ -85,7 +88,12 @@ public class BinaryDataController {
 		
 		//System.out.println("El id de almacenado fué:  "+fileId);			   
 		System.out.println( new Date() );*/
-		generar();
+		
+		
+		//this.generar();
+		//this.generateZip();
+		this.guardarMongo();
+		
 		return "Todo bien";
 	}
 	
@@ -109,9 +117,9 @@ public class BinaryDataController {
 	
 	@GetMapping("/updateMetadata/{id}")
 	public String updateMetadata( @PathVariable("id") String id) {
-		GridFSDBFile outputFile = gridFsOperations.findOne(new Query(Criteria.where("_id").is(id)));
-	    
 		
+		GridFSDBFile outputFile = gridFsOperations.findOne(new Query(Criteria.where("_id").is(id)));
+	    		
 		BasicDBObject updatedMetadata = new BasicDBObject();
 		updatedMetadata.put("type", "data");
 		updatedMetadata.put("user", "ever3");;
@@ -120,7 +128,7 @@ public class BinaryDataController {
 	    outputFile.save();
 	    return "metadata Updated Sucessfully";
 	}
-	
+	 
 	
 	
 	
@@ -180,7 +188,9 @@ public class BinaryDataController {
 	
 	
 	
-	
+	/**
+	 * Consulta los archivos a la bd SanVicente y los almacena en un directorio como pdf. 
+	 */
 	public void generar() {
 		//conexión con postgres
 		ConexionBD con = getConnection();
@@ -195,20 +205,22 @@ public class BinaryDataController {
 			//consulta a postgres
 			CachedRowSet crs = con.consultar("select d.data_gen,tpd.nombre_documento as nombre, d.codigo_detalle  from predi.predi_detalle_etapa_documento_notificacion as d  inner join predi.predi_tipo_documento as tpd on tpd .codigo_tipo_documento=d.fk_codigo_documento and d.data_gen notnull limit 700");
 			while(crs.next()) {		
+				//forma el archivo con datos y ruta;
 				File file = new File("/tmp/".concat( crs.getString("nombre") ).concat( crs.getString("codigo_detalle") ).concat(".pdf") );
-				//forma el archivo;
+				//Escribe el archivo
 				FileUtils.writeByteArrayToFile(file, crs.getBytes("data_gen"));
 				if(!file.exists())
 					throw new Exception("No existe el archivo");
 				
-				FileInputStream fin = new FileInputStream(file);
+			    //Guarda en Mongo
+				/*FileInputStream fin = new FileInputStream(file);
 				String fileId=gridFsOperations.store(fin, 
 						   crs.getString("nombre"),"type/"+"pdf",metadata).getId().toString();
 				con.ejecutar("INSERT INTO predi.data_mongo (id_mongo, id_doc) VALUES(?, ?);", fileId, crs.getString("codigo_detalle"));
 				//crs.close();cierra todo
 				if(file.exists()) 
 					file.delete();					
-				fin.close();
+				fin.close();*/
 			}			
 			con.finish();
 			System.out.println( "Fin" );
@@ -220,6 +232,145 @@ public class BinaryDataController {
 	}
 
 	
+	
+	/**
+	 * Obtiene todos los archivos de un directorio los comprime y los guarda en otra carpeta.
+	 */
+	public void generateZip()
+	{
+		// cadena que contiene la ruta donde están los archivos a comprimir
+		String directorioZip = "C:\\tmp\\";
+		// ruta completa donde están los archivos a comprimir
+		File carpetaComprimir = new File(directorioZip);
+		
+		// valida si existe el directorio
+		if (carpetaComprimir.exists()) {
+			// lista los archivos que hay dentro del directorio
+			File[] ficheros = carpetaComprimir.listFiles();
+			System.out.println("Número de ficheros encontrados: " + ficheros.length);
+ 
+			//ciclo para recorrer todos los archivos a comprimir
+			for (int i = 0; i < ficheros.length; i++) {
+				System.out.println("Nombre del fichero: " + ficheros[i].getName());
+				String extension="";
+				//Ciclo para cambiar la extension
+				for (int j = 0; j < ficheros[i].getName().length(); j++) {
+					//obtiene la extensión del archivo
+					if (ficheros[i].getName().charAt(j)=='.') {
+						extension=ficheros[i].getName().substring(j, (int)ficheros[i].getName().length());
+						//System.out.println(extension);
+					}
+				}
+				try {
+					// crea un buffer temporal con Dirección de Salida
+					ZipOutputStream zous = new ZipOutputStream(new FileOutputStream("C:\\zip\\"+ ficheros[i].getName().replace(extension, ".zip")));
+					
+					//nombre con el que se guarda el archivo dentro del zip
+					ZipEntry entrada = new ZipEntry(ficheros[i].getName());
+					zous.putNextEntry(entrada);
+					
+						System.out.println("Nombre del Archivo: " + entrada.getName());
+						System.out.println("Comprimiendo.....");
+						
+						//obtiene el archivo para irlo comprimiendo
+						FileInputStream fis = new FileInputStream(directorioZip +entrada.getName());
+						
+						int leer;
+						byte[] buffer = new byte[1024];
+											
+						while (0 < (leer = fis.read(buffer))) {
+							zous.write(buffer, 0, leer);
+						}
+						
+						fis.close();
+						zous.closeEntry();
+					zous.close();					
+				} catch (FileNotFoundException e) {
+					e.printStackTrace();
+				} catch (IOException e) {
+					e.printStackTrace();
+				}				
+			
+			
+			}
+			System.out.println("Directorio de salida: " + directorioZip);
+		} else {
+			System.out.println("No se encontró el directorio..");
+		}
+	}
+	
+
+	
+	
+	
+	/**
+	 * Obtiene todos los archivos de una carpeta y los va almacenando en mongo.
+	 */
+	public void guardarMongo() {
+		
+		String directorioZip = "C:\\zip\\";
+		// ruta completa donde están los archivos a comprimir
+		File carpetaComprimir = new File(directorioZip);
+		
+		// valida si existe el directorio
+		if (carpetaComprimir.exists()) {
+			// lista los archivos que hay dentro del directorio
+			File[] ficheros = carpetaComprimir.listFiles();
+			System.out.println("Número de ficheros encontrados: " + ficheros.length);
+ 
+			//ciclo para recorrer todos los archivos a comprimir
+			for (int i = 0; i < ficheros.length; i++) {
+				System.out.println("Nombre del fichero: " + ficheros[i].getName());
+				String extension="";
+				//Ciclo para cambiar la extension
+				for (int j = 0; j < ficheros[i].getName().length(); j++) {
+					//obtiene la extensión del archivo
+					if (ficheros[i].getName().charAt(j)=='.') {
+						extension=ficheros[i].getName().substring(j, (int)ficheros[i].getName().length());
+						//System.out.println(extension);
+					}
+				}
+				try {
+					ZipEntry entrada = new ZipEntry(ficheros[i].getName());
+					//zous.putNextEntry(entrada);
+						System.out.println("Nombre del Archivo: " + entrada.getName());
+						System.out.println("Almacenando en Mongo");
+						
+						//obtiene el archivo para irlo comprimiendo
+						FileInputStream fis = new FileInputStream(directorioZip +entrada.getName());
+						
+						DBObject metadata=new BasicDBObject();
+							metadata.put("type", "pdf");
+							metadata.put("user", "everr");
+	
+						String fileId=gridFsOperations.store(fis, 
+								   entrada.getName(),"type/"+"pdf",metadata).getId().toString();
+						
+						fis.close();				
+				} catch (FileNotFoundException e) {
+					e.printStackTrace();
+				} catch (IOException e) {
+					e.printStackTrace();
+				}				
+			
+			
+			}
+			System.out.println("Directorio de salida: " + directorioZip);
+		} else {
+			System.out.println("No se encontró el directorio..");
+		}
+	
+		
+	}
+	
+	
+	
+	
+	
+	/**
+	 * Crea la conexión con la bd en postgres
+	 * @return la conexión.
+	 */
 	public ConexionBD getConnection() {
 		ConexionBD con = new ConexionBD();
 		con.basedatos = "san_vicente";
